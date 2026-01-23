@@ -72,7 +72,11 @@ function New-TablePermission {
         [bool]$AppendTo = $false
     )
 
+    # Generate unique ID for the permission
+    $permissionId = [guid]::NewGuid().ToString()
+
     $permission = @{
+        "adx_entitypermissionid" = $permissionId
         "adx_entityname" = $TableLogicalName
         "adx_entitylogicalname" = $TableLogicalName
         "adx_scope" = $Scope
@@ -89,8 +93,11 @@ function New-TablePermission {
 
     try {
         $result = Invoke-RestMethod -Uri "$baseUrl/adx_entitypermissions" -Method Post -Headers $headers -Body $body
-        Write-Host "Created table permission for: $TableLogicalName"
-        return $result
+        Write-Host "Created table permission for: $TableLogicalName (ID: $permissionId)"
+        return @{
+            "Id" = $permissionId
+            "Result" = $result
+        }
     }
     catch {
         Write-Host "Error creating permission for $TableLogicalName : $_"
@@ -159,31 +166,89 @@ New-TablePermission -Name "Admin Orders" `
 
 Table permissions must be linked to web roles to take effect.
 
-### Get Anonymous Users Role
+### Get or Create Web Role
+
+**IMPORTANT**: Always use `mspp_webroles` (not `adx_webroles`) for fetching web role IDs. If the role doesn't exist, create it first before proceeding with table permissions.
 
 ```powershell
-# Get the Anonymous Users web role ID
-$anonymousRole = Invoke-RestMethod `
-    -Uri "$baseUrl/adx_webroles?`$filter=adx_name eq 'Anonymous Users' and _adx_websiteid_value eq $websiteId&`$select=adx_webroleid" `
-    -Headers $headers
+function Get-OrCreateWebRole {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$RoleName,
+        [Parameter(Mandatory=$true)]
+        [string]$WebsiteId,
+        [string]$Description = ""
+    )
 
-if ($anonymousRole.value.Count -gt 0) {
-    $roleId = $anonymousRole.value[0].adx_webroleid
-    Write-Host "Anonymous Users Role ID: $roleId"
+    # Try to get existing role using mspp_webroles
+    try {
+        $existingRole = Invoke-RestMethod `
+            -Uri "$baseUrl/mspp_webroles?`$filter=mspp_name eq '$RoleName' and _mspp_websiteid_value eq $WebsiteId&`$select=mspp_webroleid" `
+            -Headers $headers
+
+        if ($existingRole.value.Count -gt 0) {
+            $roleId = $existingRole.value[0].mspp_webroleid
+            Write-Host "Found existing web role '$RoleName' with ID: $roleId"
+            return $roleId
+        }
+    }
+    catch {
+        Write-Host "Error checking for existing role: $_"
+    }
+
+    # Role doesn't exist - create it
+    Write-Host "Web role '$RoleName' not found. Creating..."
+
+    $newRoleId = [guid]::NewGuid().ToString()
+    $webRole = @{
+        "mspp_webroleid" = $newRoleId
+        "mspp_name" = $RoleName
+        "mspp_description" = $Description
+        "mspp_websiteid@odata.bind" = "/mspp_websites($WebsiteId)"
+    }
+
+    try {
+        Invoke-RestMethod -Uri "$baseUrl/mspp_webroles" -Method Post -Headers $headers -Body ($webRole | ConvertTo-Json -Depth 5)
+        Write-Host "Created web role '$RoleName' with ID: $newRoleId"
+        return $newRoleId
+    }
+    catch {
+        Write-Host "Error creating web role '$RoleName': $_"
+        return $null
+    }
 }
+
+# Example: Get or create Anonymous Users role
+$roleId = Get-OrCreateWebRole -RoleName "Anonymous Users" -WebsiteId $websiteId -Description "Unauthenticated site visitors"
+
+if (-not $roleId) {
+    Write-Host "ERROR: Unable to get or create web role. Cannot proceed with table permission creation." -ForegroundColor Red
+    return
+}
+
+Write-Host "Web Role ID: $roleId"
 ```
 
 ### Associate Permission with Role
 
+**IMPORTANT**: Only create table permissions if you have a valid web role ID. If role retrieval/creation fails, do NOT create the permission.
+
 ```powershell
 function Add-PermissionToRole {
     param(
+        [Parameter(Mandatory=$true)]
         [string]$PermissionId,
+        [Parameter(Mandatory=$true)]
         [string]$RoleId
     )
 
+    if (-not $RoleId) {
+        Write-Host "ERROR: No valid role ID provided. Cannot associate permission." -ForegroundColor Red
+        return $false
+    }
+
     $association = @{
-        "@odata.id" = "$baseUrl/adx_webroles($RoleId)"
+        "@odata.id" = "$baseUrl/mspp_webroles($RoleId)"
     }
 
     try {
@@ -193,9 +258,11 @@ function Add-PermissionToRole {
             -Headers $headers `
             -Body ($association | ConvertTo-Json)
         Write-Host "Associated permission $PermissionId with role $RoleId"
+        return $true
     }
     catch {
         Write-Host "Error associating permission: $_"
+        return $false
     }
 }
 ```
@@ -253,9 +320,21 @@ $linkedRoles.value | ForEach-Object {
 }
 ```
 
-## PAC CLI Table Permission Files
+## Code Site Table Permission Files
 
-When working with Power Platform CLI (`pac paportal download`), table permissions are stored as YAML files.
+Table permissions for Power Pages code sites are stored as YAML files in the `.powerpages-site/table-permissions/` folder.
+
+### Folder Structure
+
+```
+<PROJECT_ROOT>/
+├── .powerpages-site/
+│   ├── table-permissions/
+│   │   ├── Product-Read-Permission.tablepermission.yml
+│   │   ├── Contact-Self-Access.tablepermission.yml
+│   │   └── ...
+│   └── ...
+```
 
 ### File Naming Convention
 
@@ -268,37 +347,45 @@ Example: `Product-Read-Permission.tablepermission.yml`
 ### YAML File Structure
 
 ```yaml
+accountrelationship:
+adx_entitypermission_webrole:
+- f0323770-7314-4f33-b904-21523abfbcb7
 append: false
 appendto: false
+contactrelationship:
 create: false
 delete: false
 entitylogicalname: cr_product
 entityname: Product Read Permission
-entitypermission_webrole:
-- 18c1fdce-684b-f011-877a-7c1e520c8613
-id: 71ecf203-dfe2-4c1e-9db2-112ed3925a52
+id: b5d8334f-45fa-464c-ac1d-f7088325f697
 parententitypermission:
+parentrelationship:
 read: true
 scope: 756150000
 write: false
 ```
 
+**Important**: Field names do NOT include the `adx_` prefix (e.g., use `read` not `adx_read`), EXCEPT for many-to-many relationship fields like `adx_entitypermission_webrole` which retain the full name.
+
 ### YAML Field Reference
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `entitylogicalname` | string | Dataverse table logical name (e.g., `cr_product`) |
-| `entityname` | string | Display name for the permission |
-| `id` | GUID | Unique identifier for this permission |
-| `scope` | int | Permission scope (see values below) |
-| `read` | bool | Can retrieve/query records |
-| `create` | bool | Can create new records |
-| `write` | bool | Can update existing records |
-| `delete` | bool | Can delete records |
-| `append` | bool | Can associate records to this entity |
-| `appendto` | bool | Can associate this entity to other records |
-| `entitypermission_webrole` | list | GUIDs of web roles with this permission |
-| `parententitypermission` | GUID | Parent permission ID for hierarchical access |
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | GUID | Yes | Unique identifier for this permission |
+| `entitylogicalname` | string | Yes | Dataverse table logical name (e.g., `cr_product`) |
+| `entityname` | string | Yes | Display name for the permission |
+| `scope` | int | Yes | Permission scope (see values below) |
+| `read` | bool | No | Can retrieve/query records |
+| `create` | bool | No | Can create new records |
+| `write` | bool | No | Can update existing records |
+| `delete` | bool | No | Can delete records |
+| `append` | bool | No | Can associate records to this entity |
+| `appendto` | bool | No | Can associate this entity to other records |
+| `adx_entitypermission_webrole` | list | No | GUIDs of web roles with this permission |
+| `parententitypermission` | GUID | No | Parent permission ID for hierarchical access |
+| `parentrelationship` | string | No | Relationship name for parent scope |
+| `accountrelationship` | string | No | Relationship name for account filtering |
+| `contactrelationship` | string | No | Relationship name for contact filtering |
 
 ### Scope Values for YAML
 
@@ -310,18 +397,60 @@ write: false
 | Parent | 756150003 | Records linked via parent relationship |
 | Self | 756150004 | Only records owned by current user |
 
+### Generating Unique IDs
+
+**IMPORTANT**: Every table permission YAML file must have a unique `id` field (UUID/GUID format).
+
+**When creating YAML files directly**: Generate a valid UUID in the format `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` where each `x` is a hexadecimal character (0-9, a-f). Each permission must have a different UUID.
+
+**PowerShell** (if running scripts):
+```powershell
+[guid]::NewGuid().ToString()
+```
+
+**Bash/Linux/Mac**:
+```bash
+uuidgen | tr '[:upper:]' '[:lower:]'
+# or
+cat /proc/sys/kernel/random/uuid
+```
+
+**Python**:
+```python
+import uuid
+print(str(uuid.uuid4()))
+```
+
+**Online**: Use any UUID generator website
+
+**Example UUIDs** (do NOT reuse these - generate new ones):
+- `71ecf203-dfe2-4c1e-9db2-112ed3925a52`
+- `82fde314-eff3-5d2f-0ec3-223fe4036b63`
+- `93gef425-fgg4-6e3g-1fd4-334gf5147c74`
+
 ### Example: Read-Only Public Permission
 
+**Before creating**, get the web role GUID from the `.powerpages-site/web-roles/` folder. Each web role has a `.webrole.yml` file containing its `id`.
+
+**Web Role File Format** (`.powerpages-site/web-roles/Anonymous-Users.webrole.yml`):
 ```yaml
+anonymoususersrole: true
+authenticatedusersrole: false
+id: f0323770-7314-4f33-b904-21523abfbcb7
+name: Anonymous Users
+```
+
+**Table Permission File** (`.powerpages-site/table-permissions/Product-Anonymous-Read.tablepermission.yml`):
+```yaml
+adx_entitypermission_webrole:
+- f0323770-7314-4f33-b904-21523abfbcb7
 append: false
 appendto: false
 create: false
 delete: false
 entitylogicalname: cr_product
 entityname: Product - Anonymous Read
-entitypermission_webrole:
-- <anonymous-users-webrole-guid>
-id: <new-guid>
+id: 71ecf203-dfe2-4c1e-9db2-112ed3925a52
 parententitypermission:
 read: true
 scope: 756150000
@@ -330,16 +459,25 @@ write: false
 
 ### Example: User Self-Access Permission
 
+**Web Role File** (`.powerpages-site/web-roles/Authenticated-Users.webrole.yml`):
 ```yaml
+anonymoususersrole: false
+authenticatedusersrole: true
+id: ecac9573-effb-4d63-9b27-15861f70f3de
+name: Authenticated Users
+```
+
+**Table Permission File** (`.powerpages-site/table-permissions/User-Profile-Self-Access.tablepermission.yml`):
+```yaml
+adx_entitypermission_webrole:
+- ecac9573-effb-4d63-9b27-15861f70f3de
 append: false
 appendto: false
 create: true
 delete: false
 entitylogicalname: cr_userprofile
 entityname: User Profile - Self Access
-entitypermission_webrole:
-- <authenticated-users-webrole-guid>
-id: <new-guid>
+id: 82fde314-eff3-5d2f-0ec3-223fe4036b63
 parententitypermission:
 read: true
 scope: 756150004
@@ -357,20 +495,23 @@ When tables have relationships (e.g., Order → Order Items), you can create hie
 2. Note the parent permission's `id` (GUID)
 3. Create child permission with `parententitypermission` set to parent's ID
 4. Set child's `scope` to `756150003` (Parent)
+5. Set `parentrelationship` to the relationship name between child and parent tables
 
 #### Example: Parent Permission (Order)
 
+**File**: `.powerpages-site/table-permissions/Order-User-Access.tablepermission.yml`
 ```yaml
+adx_entitypermission_webrole:
+- ecac9573-effb-4d63-9b27-15861f70f3de
 append: true
 appendto: false
 create: true
 delete: false
 entitylogicalname: cr_order
 entityname: Order - User Access
-entitypermission_webrole:
-- <authenticated-users-webrole-guid>
 id: a1b2c3d4-e5f6-7890-abcd-ef1234567890
 parententitypermission:
+parentrelationship:
 read: true
 scope: 756150001
 write: true
@@ -378,23 +519,38 @@ write: true
 
 #### Example: Child Permission (Order Items)
 
+**File**: `.powerpages-site/table-permissions/Order-Item-Parent-Access.tablepermission.yml`
 ```yaml
+adx_entitypermission_webrole:
+- ecac9573-effb-4d63-9b27-15861f70f3de
 append: false
 appendto: true
 create: true
 delete: true
 entitylogicalname: cr_orderitem
 entityname: Order Item - Parent Access
-entitypermission_webrole:
-- <authenticated-users-webrole-guid>
-id: <new-guid>
+id: b2c3d4e5-f6a7-8901-bcde-fa2345678901
 parententitypermission: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+parentrelationship: cr_order_orderitems
 read: true
 scope: 756150003
 write: true
 ```
 
 In this example, users can only access order items that belong to orders they have access to.
+
+## Validation Checklist
+
+Before uploading:
+
+- [ ] All YAML files have valid syntax
+- [ ] Each file has a unique UUID for the `id` field
+- [ ] Fields are alphabetically sorted in the YAML file
+- [ ] File extensions are `.yml` (not `.yaml`)
+- [ ] Field names do NOT include `adx_` prefix (except `adx_entitypermission_webrole`)
+- [ ] Boolean values are unquoted (`true` not `"true"`)
+- [ ] All GUIDs are valid UUID format (lowercase with hyphens)
+- [ ] Web role GUIDs exist in `.powerpages-site/web-roles/` folder
 
 ## Security Best Practices
 

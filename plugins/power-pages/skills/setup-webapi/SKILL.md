@@ -1,5 +1,5 @@
 ---
-description: Configure Web API access for your Power Pages site. Creates site settings to enable table access via /_api endpoint, sets up entity permissions, and updates frontend code to use Power Pages Web API.
+description: Configure Web API access, table permissions, entity permissions, and web roles for Power Pages. Use this skill when you need to set up table permissions, create entity permissions, configure web roles, enable API access, set CRUD permissions (read/write/create/delete), create site settings for Web API, or update frontend code to fetch data from Dataverse tables.
 user-invocable: true
 allowed-tools: Bash(pac:*), Bash(az:*), Bash(dotnet:*)
 model: sonnet
@@ -16,6 +16,7 @@ This skill uses modular reference files for detailed instructions:
 | File | Purpose |
 |------|---------|
 | [site-settings-reference.md](./site-settings-reference.md) | YAML format, naming conventions, PowerShell scripts |
+| [web-roles-reference.md](./web-roles-reference.md) | Web role selection, creation, and user assignment |
 | [table-permissions-reference.md](./table-permissions-reference.md) | Dataverse API for entity permissions, scopes, web roles |
 | [frontend-integration-reference.md](./frontend-integration-reference.md) | Web API service code, React hooks, component patterns |
 | [troubleshooting.md](./troubleshooting.md) | Common issues and solutions |
@@ -51,16 +52,26 @@ This skill uses a **memory bank** (`memory-bank.md`) to persist context across s
 └─────────────────────────────────────────────────────────────────────────────┘
                                     ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  STEP 3: Create Table Permissions                                           │
+│  STEP 3: Create Web Roles                                                   │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  • Determine required web roles based on site features                      │
+│  • Verify default roles exist (Anonymous, Authenticated, Administrators)    │
+│  • Create custom roles if needed (Customers, Partners, etc.)                │
+│  📖 See: web-roles-reference.md                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  STEP 4: Create Table Permissions                                           │
 │  ─────────────────────────────────────────────────────────────────────────  │
 │  • Create entity permission records for Web API access                      │
 │  • Configure scope (Global/Parent/Self) based on requirements               │
 │  • Set appropriate CRUD permissions                                         │
+│  • Associate permissions with web roles from Step 3                         │
 │  📖 See: table-permissions-reference.md                                     │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  STEP 4: Update Frontend Code                                               │
+│  STEP 5: Update Frontend Code                                               │
 │  ─────────────────────────────────────────────────────────────────────────  │
 │  • Create API service/utility for /_api calls                               │
 │  • Update components to fetch data dynamically                              │
@@ -70,7 +81,7 @@ This skill uses a **memory bank** (`memory-bank.md`) to persist context across s
 └─────────────────────────────────────────────────────────────────────────────┘
                                     ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  STEP 5: Build and Upload                                                   │
+│  STEP 6: Build and Upload                                                   │
 │  ─────────────────────────────────────────────────────────────────────────  │
 │  • Build the project                                                        │
 │  • Upload to Power Pages                                                    │
@@ -158,40 +169,91 @@ For each table that needs Web API access, create two site setting files:
 
 ---
 
-## STEP 3: Create Table Permissions
+## STEP 3: Create Web Roles
+
+**📖 Detailed reference: [web-roles-reference.md](./web-roles-reference.md)**
+
+### Quick Summary
+
+Web roles define user groups with specific access levels. They must be created **before** table permissions because permissions are linked to roles.
+
+### Key Points
+
+- **Anonymous Users**: Unauthenticated visitors (public content, read-only)
+- **Authenticated Users**: Signed-in users (member features, form submissions)
+- **Administrators**: Full site management access
+- **Custom roles**: Create for specific user groups (Customers, Partners, Employees)
+
+### Determine Required Roles
+
+Use this decision matrix:
+
+| Site Feature | Required Role |
+|--------------|---------------|
+| Public landing page, product catalog | Anonymous Users |
+| Contact form submission | Anonymous Users (create-only) |
+| User dashboard, profile | Authenticated Users |
+| Order history, support tickets | Custom role (e.g., Customers) |
+| Partner portal | Custom role (e.g., Partners) |
+| Admin panel | Administrators |
+
+### Actions
+
+1. Get environment URL and token (same as Step 2)
+2. Get Website ID from memory bank or `pac pages list`
+3. Verify default roles exist using `Get-WebRoles` function
+4. Create custom roles if needed using `New-WebRole` function
+5. Record role IDs for use in Step 4 (table permissions)
+
+### Example: Create Custom Roles
+
+```powershell
+# For a customer portal
+$customerRoleId = New-WebRole -Name "Customers" -WebsiteId $websiteId -Description "Registered customers"
+
+# For a partner portal
+$partnerRoleId = New-WebRole -Name "Partners" -WebsiteId $websiteId -Description "Business partners"
+```
+
+---
+
+## STEP 4: Create Table Permissions
 
 **📖 Detailed reference: [table-permissions-reference.md](./table-permissions-reference.md)**
 
 ### Quick Summary
 
-Table permissions control which users can access data. Create via Dataverse API.
+Table permissions control which users can access data. Create via Dataverse API and link to web roles from Step 3.
 
 ### Key Points
 
 - Use **Global scope** for public data (products, FAQs)
 - Use **Self scope** for user-specific data
-- Link permissions to appropriate web roles:
+- Link permissions to appropriate web roles created in Step 3:
   - **Anonymous Users** for public access
   - **Authenticated Users** for logged-in users
+  - **Custom roles** for specific user groups
 
 ### Common Patterns
 
-| Data Type | Scope | Permissions |
-|-----------|-------|-------------|
-| Public content | Global | Read only |
-| Form submissions | Global | Create only |
-| User profiles | Self | Read, Write |
+| Data Type | Scope | Permissions | Web Role |
+|-----------|-------|-------------|----------|
+| Public content | Global | Read only | Anonymous Users |
+| Form submissions | Global | Create only | Anonymous Users |
+| User profiles | Self | Read, Write | Authenticated Users |
+| Orders | Contact | Read, Write | Customers (custom) |
 
 ### Actions
 
 1. Get environment URL and token
 2. Get Website ID from memory bank or `pac pages list`
-3. Create permissions using `New-TablePermission` function
-4. Associate permissions with web roles
+3. Get web role IDs from Step 3 or using `Get-WebRoleId` function
+4. Create permissions using `New-TablePermission` function
+5. Associate permissions with web roles
 
 ---
 
-## STEP 4: Update Frontend Code
+## STEP 5: Update Frontend Code
 
 **📖 Detailed reference: [frontend-integration-reference.md](./frontend-integration-reference.md)**
 
@@ -199,12 +261,15 @@ Table permissions control which users can access data. Create via Dataverse API.
 
 Update the frontend to use Power Pages Web API instead of mock data.
 
+**CRITICAL**: This step is NOT complete until ALL mock/static data has been replaced with Web API calls. Do not proceed to Step 6 until verification is complete.
+
 ### Key Points
 
-- Create `dataverseApi.ts` service with CRUD operations
+- Create `webApi.ts` service with CRUD operations
 - Implement CSRF token handling for write operations
 - Create typed wrappers for each entity
 - Replace **ALL** static/mock data with API calls
+- **VERIFY** no hardcoded data remains
 
 ### CSRF Token Requirement
 
@@ -212,25 +277,61 @@ POST, PATCH, DELETE requests require `__RequestVerificationToken` header. The re
 
 ### Actions
 
-1. Create `src/services/dataverseApi.ts` (copy from reference)
+1. Create `src/services/webApi.ts` (copy from reference)
 2. Create type definitions for your entities
 3. Create entity-specific API wrappers
-4. Optionally create `useDataverse` React hook
-5. Update each component to use Web API
-6. Search and remove all mock data
+4. Optionally create `useWebApi` React hook
+5. **Systematically search for ALL mock data** (see below)
+6. Update each component to use Web API
+7. **Delete mock data files/folders** after replacement
+8. **Run verification checks** before proceeding
 
-### Mock Data Checklist
+### Mock Data Search (REQUIRED)
 
-Search these locations for mock data to replace:
+You MUST search for and replace ALL mock data. Use these searches:
 
-- [ ] `src/data/` or `src/mock/` folders
-- [ ] Constants files with hardcoded arrays
-- [ ] Component files with inline data
-- [ ] JSON files used as data sources
+```powershell
+# 1. Find mock data folders
+Get-ChildItem -Path ./src -Directory -Recurse | Where-Object { $_.Name -match "^(mock|data|fixtures|fake|dummy)$" }
+
+# 2. Find data files
+Get-ChildItem -Path ./src -Recurse -Include "*.data.ts","*.data.js","*mock*.ts","*mock*.js"
+
+# 3. Find inline array declarations (review each match)
+Select-String -Path "src\**\*.ts","src\**\*.tsx" -Pattern "const\s+\w+\s*=\s*\[" | Where-Object { $_.Line -match "\{" }
+
+# 4. Find JSON imports
+Select-String -Path "src\**\*.ts","src\**\*.tsx" -Pattern "from ['\"].*\.json['\"]"
+```
+
+### Mock Data Verification (REQUIRED)
+
+Before proceeding to Step 6, verify:
+
+- [ ] No `src/data/` or `src/mock/` folders exist (or are empty)
+- [ ] No `*.data.ts` or `*mock*.ts` files remain with active exports
+- [ ] No components have inline hardcoded arrays for configured tables
+- [ ] No JSON files are imported as data sources for configured tables
+- [ ] All components displaying data use the `webApi` service
+- [ ] All form components use the `webApi` service for submissions
+
+**If any mock data remains, replace it before continuing.**
+
+### Entity-Specific Checklist
+
+For each table configured for Web API, verify:
+
+| Table | Mock Data Replaced | Component Updated | Verified Working |
+|-------|-------------------|-------------------|------------------|
+| Products | [ ] | [ ] | [ ] |
+| Team Members | [ ] | [ ] | [ ] |
+| Testimonials | [ ] | [ ] | [ ] |
+| FAQs | [ ] | [ ] | [ ] |
+| Contact Form | [ ] | [ ] | [ ] |
 
 ---
 
-## STEP 5: Build and Upload
+## STEP 6: Build and Upload
 
 ### Build the Project
 
@@ -239,6 +340,36 @@ cd <PROJECT_ROOT>
 npm install  # if needed
 npm run build
 ```
+
+### Confirm Connected Account
+
+**IMPORTANT**: Before uploading, you MUST confirm which account the user is connected with.
+
+1. Run the following command to show the connected account:
+
+```powershell
+pac auth list
+```
+
+2. Display the connected account information to the user, including:
+   - The active profile (marked with `*`)
+   - The environment URL
+   - The user email/account
+
+3. Use the `AskUserQuestion` tool to confirm:
+
+| Question | Options |
+|----------|---------|
+| **You are about to upload the site to the account shown above. Do you want to proceed?** | **Yes, upload to this account** - Proceed with the upload; **No, let me switch accounts** - User will run `pac auth create` to connect to a different account |
+
+4. **Only proceed with upload after the user confirms.** If the user selects "No", guide them to authenticate to the correct account:
+
+```powershell
+# Create new authentication profile
+pac auth create
+```
+
+Then run `pac auth list` again to verify and ask for confirmation again.
 
 ### Upload to Power Pages
 
@@ -271,6 +402,14 @@ fetch('/_api/cr_products')
 
 ---
 
+## STEP 7: Cleanup Helper Files
+
+**📖 See: [cleanup-reference.md](${CLAUDE_PLUGIN_ROOT}/shared/cleanup-reference.md)**
+
+Remove any temporary helper files created during this skill's execution. Verify the setup is working before cleanup.
+
+---
+
 ## Update Memory Bank
 
 After completing this skill, update `memory-bank.md`:
@@ -279,6 +418,7 @@ After completing this skill, update `memory-bank.md`:
 ### /setup-webapi
 - [x] Site settings folder created
 - [x] Web API enabled for tables: [LIST]
+- [x] Web roles verified/created
 - [x] Table permissions created
 - [x] Frontend code updated with Web API service
 - [x] All mock/static data replaced with Web API calls
@@ -295,6 +435,15 @@ After completing this skill, update `memory-bank.md`:
 | Webapi/cr_product/enabled | true | Webapi-cr_product-enabled.sitesetting.yml |
 | [ADD MORE AS CREATED] |
 
+### Web Roles
+
+| Role Name | Role ID | Type |
+|-----------|---------|------|
+| Anonymous Users | [GUID] | Default |
+| Authenticated Users | [GUID] | Default |
+| Customers | [GUID] | Custom |
+| [ADD MORE AS CREATED] |
+
 ### Table Permissions
 
 | Table | Scope | Permissions | Web Role |
@@ -306,7 +455,7 @@ After completing this skill, update `memory-bank.md`:
 
 | File | Changes |
 |------|---------|
-| src/services/dataverseApi.ts | Created Web API service |
+| src/services/webApi.ts | Created Power Pages Web API service |
 | [ADD MORE AS MODIFIED] |
 
 ### Removed/Replaced Mock Data
