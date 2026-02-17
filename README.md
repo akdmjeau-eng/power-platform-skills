@@ -1,10 +1,10 @@
 # Power Platform Skills
 
-Official Claude Code plugin for Power Platform development by Microsoft.
+Official agent skills/plugins for Power Platform development by Microsoft.
 
 ## Overview
 
-This repository is a **plugin marketplace** containing Claude Code plugins for Power Platform services. Each plugin provides skills, agents, and commands to help developers build on the Power Platform.
+This repository is a **plugin marketplace** containing Claude Code/GitHub Copilot plugins for Power Platform services. Each plugin provides skills, agents, and commands to help developers build on the Power Platform.
 
 ## Repository Structure
 
@@ -52,7 +52,7 @@ Build and deploy Power Apps generative pages for model-driven apps.
 
 To use a plugin from this marketplace:
 
-1. Add the marketplace to your Claude Code instance
+1. Add the marketplace to your agent
 
     ```bash
     /plugin marketplace add microsoft/power-platform-skills
@@ -68,7 +68,7 @@ To use a plugin from this marketplace:
 ### Add from local path
 
 1. Clone this repository
-1. Add the marketplace to your Claude Code instance
+1. Add the marketplace to your agent
 
     ```bash
     /plugin marketplace add /path/to/power-platform-skills
@@ -93,26 +93,94 @@ To develop and test plugins locally, follow these steps:
     claude --plugin-dir /path/to/power-platform-skills/plugins/power-apps
     ```
 
+1. Launch Copilot with plugin path:
+
+    ```bash
+    copilot --plugin-dir /path/to/power-platform-skills/plugins/power-pages
+    ```
+
+## Running Without Interruption
+
+Plugins in this repo may invoke multiple tools (file edits, shell commands, MCP servers) during a session, which can result in frequent approval prompts. Use the options below to reduce or eliminate these interruptions.
+
+> **Warning**: Auto-approval options give the agent the same access you have on your machine. Only use these in trusted or sandboxed environments.
+
+### Claude Code
+
+**Option 1 — Permission mode (recommended)**
+
+Set the `acceptEdits` mode to auto-approve file edits while still prompting for shell commands:
+
+```jsonc
+// .claude/settings.json (project-level) or ~/.claude/settings.json (user-level)
+{
+  "defaultMode": "acceptEdits",
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(git *)",
+      "Bash(pac *)"
+      // add other commands your workflow needs
+    ]
+  }
+}
+```
+
+**Option 2 — Allow all tools**
+
+Press <kbd>Shift</kbd>+<kbd>Tab</kbd> during a session to cycle to **auto-accept** mode, or launch with:
+
+```bash
+claude --dangerously-skip-permissions
+```
+
+See the [Claude Code permissions docs](https://code.claude.com/docs/en/permissions) for the full reference.
+
+### GitHub Copilot CLI
+
+**Option 1 — Allow specific tools (recommended)**
+
+Pre-approve only the tools your workflow needs:
+
+```bash
+copilot --allow-tool 'write' --allow-tool 'shell(npm run build)' --allow-tool 'shell(pac *)'
+```
+
+**Option 2 — Allow all tools**
+
+```bash
+copilot --allow-all-tools
+```
+
+To allow everything except dangerous commands:
+
+```bash
+copilot --allow-all-tools --deny-tool 'shell(rm)' --deny-tool 'shell(git push)'
+```
+
+**Option 3 — Non-interactive single prompt**
+
+Pass a prompt directly with auto-approval for fully unattended runs:
+
+```bash
+copilot -p "Create a Power Pages code site with React" --allow-all-tools
+```
+
+See the [Copilot CLI docs](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli) for the full reference.
+
 ## Documentation
 
 - [Power Pages Code Sites](https://learn.microsoft.com/en-us/power-pages/configure/create-code-sites)
 - [Power Pages REST API](https://learn.microsoft.com/en-us/rest/api/power-platform/powerpages/websites)
 - [PAC CLI Reference](https://learn.microsoft.com/en-us/power-platform/developer/cli/reference/pages)
-- [Claude Code Plugins](https://code.claude.com/docs/en/plugins-reference)
 
 ## Contributing
 
-This project welcomes contributions and suggestions.  Most contributions require you to agree to a
-Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us
-the rights to use your contribution. For details, visit [Contributor License Agreements](https://cla.opensource.microsoft.com).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guide.
 
-When you submit a pull request, a CLA bot will automatically determine whether you need to provide
-a CLA and decorate the PR appropriately (e.g., status check, comment). Simply follow the instructions
-provided by the bot. You will only need to do this once across all repos using our CLA.
+## License
 
-This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
-For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or
-contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
+The code in this repo is licensed under the [MIT](LICENSE) license.
 
 ## Trademarks
 
