@@ -1,0 +1,5 @@
+- name: Run GitHub Repo Stats
+  uses: jgehrcke/github-repo-stats@v1.4.2
+  with:
+    repository: microsoft/power-platform-skills
+    ghtoken: ${{ secrets.GITHUB_TOKEN }}
