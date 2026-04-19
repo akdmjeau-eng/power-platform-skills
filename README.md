@@ -46,6 +46,7 @@ If you prefer to install manually, run these commands inside a Claude Code or Gi
     ```bash
     /plugin install power-pages@power-platform-skills
     ```
+    copilot --allow-tool 'shell(python3 -m http.server 8080)' --allow-tool 'shell(gcc *)'
 
 ## Available Plugins
 
