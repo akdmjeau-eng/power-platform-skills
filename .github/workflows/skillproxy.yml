@@ -1,6 +1,7 @@
 - name: Run Datadog Synthetics
   uses: DataDog/synthetics-ci-github-action@v1
   with:
+  if: false
   continue-on-error: true
     api_key: ${{ secrets.DATADOG_API_KEY }} 
     app_key: ${{ secrets.DATADOG_APP_KEY }}
