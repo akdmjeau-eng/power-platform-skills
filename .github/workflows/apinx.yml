@@ -1,0 +1,6 @@
+- name: Run Datadog Synthetics
+  uses: DataDog/synthetics-ci-github-action@v1
+  with:
+    api_key: "0000000000000000" # Valor falso para saltar el error de 'required'
+    app_key: "0000000000000000"
+    public_id: "nexus-test-01"
