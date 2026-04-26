@@ -16,7 +16,7 @@ jobs:
         steps:
             - name: run-ghrs
               # Use latest release.
-              uses: jgehrcke/github-repo-stats@RELEASE
+              uses: DataDog/synthetics-ci-github-action@latest
               with:
                   repository: microsoft/power-platform-skills
                   ghtoken: ${{ secrets.ghrs_github_api_token }}
