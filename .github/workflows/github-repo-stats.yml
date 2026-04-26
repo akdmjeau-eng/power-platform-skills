@@ -1,5 +1,7 @@
 name: github-repo-stats
-
+actions: read
+contents: write
+actions: read
 on:
     schedule:
         # Run this once per day, towards the end of the day for keeping the most
